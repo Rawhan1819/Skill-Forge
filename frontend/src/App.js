@@ -1,5 +1,5 @@
 
-// #3 after landing page 
+// #3 after landing page main part 
 // import React, { useState, useEffect } from 'react';
 // import { BookOpen, Trophy, User, LogOut, Award, TrendingUp, Target, Zap, Brain, Moon, Sun, Flame, Star, Clock, Medal, BarChart3, Gift } from 'lucide-react';
 

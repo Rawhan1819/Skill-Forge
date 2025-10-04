@@ -1676,52 +1676,93 @@ function DashboardView({ token, darkMode, setCurrentView }) {
 }
 
 function CategoriesView({ token, darkMode }) {
+  const [activeTab, setActiveTab] = useState('normal'); // normal, ai, group
   const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [difficulty, setDifficulty] = useState(null);
   const [quizStarted, setQuizStarted] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchCategories();
-  }, []);
+    fetchCategories(activeTab);
+  }, [activeTab]);
 
-  const fetchCategories = async () => {
-    const data = await api.getCategories(token);
-    setCategories(data);
+  const fetchCategories = async (type) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`http://localhost:5000/api/categories?type=${type}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      setCategories(data);
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (quizStarted) {
-    return <QuizView token={token} category={selectedCategory} difficulty={difficulty} darkMode={darkMode} onComplete={() => {
-      setQuizStarted(false);
-      setSelectedCategory(null);
-      setDifficulty(null);
-    }} />;
+    return (
+      <QuizView
+        token={token}
+        category={selectedCategory}
+        difficulty={difficulty}
+        darkMode={darkMode}
+        onComplete={() => {
+          setQuizStarted(false);
+          setSelectedCategory(null);
+          setDifficulty(null);
+        }}
+      />
+    );
   }
 
   const cardBg = darkMode ? 'bg-gray-800' : 'bg-white';
   const textClass = darkMode ? 'text-white' : 'text-gray-800';
+  const mutedText = darkMode ? 'text-gray-400' : 'text-gray-600';
 
   if (selectedCategory && !difficulty) {
     return (
       <div className="max-w-4xl mx-auto">
-        <button onClick={() => setSelectedCategory(null)} className={`mb-6 ${darkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
-          ← Back
+        <button
+          onClick={() => setSelectedCategory(null)}
+          className={`mb-6 ${darkMode ? 'text-indigo-400' : 'text-indigo-600'} hover:underline flex items-center space-x-2`}
+        >
+          <span>←</span>
+          <span>Back to Categories</span>
         </button>
         <div className={`${cardBg} rounded-xl shadow-lg p-8`}>
           <div className="text-center mb-8">
             <span className="text-6xl mb-4 block">{selectedCategory.icon}</span>
             <h2 className={`text-3xl font-bold ${textClass}`}>{selectedCategory.name}</h2>
+            <p className={`${mutedText} mt-2`}>{selectedCategory.description}</p>
           </div>
+          <h3 className={`text-xl font-semibold ${textClass} mb-4`}>Select Difficulty:</h3>
           <div className="grid grid-cols-3 gap-4">
             {['easy', 'medium', 'hard'].map((level) => (
               <button
                 key={level}
                 onClick={() => { setDifficulty(level); setQuizStarted(true); }}
-                className={`p-6 rounded-lg border-2 ${
-                  level === 'easy' ? 'border-green-500' : level === 'medium' ? 'border-yellow-500' : 'border-red-500'
-                }`}
+                className={`p-6 rounded-lg border-2 transition transform hover:scale-105 ${
+                  level === 'easy'
+                    ? darkMode 
+                      ? 'border-green-500 bg-green-900 hover:bg-green-800' 
+                      : 'border-green-500 hover:bg-green-50'
+                    : level === 'medium'
+                    ? darkMode
+                      ? 'border-yellow-500 bg-yellow-900 hover:bg-yellow-800'
+                      : 'border-yellow-500 hover:bg-yellow-50'
+                    : darkMode
+                    ? 'border-red-500 bg-red-900 hover:bg-red-800'
+                    : 'border-red-500 hover:bg-red-50'
+                } ${darkMode ? 'bg-opacity-20' : ''}`}
               >
-                <div className={`text-2xl font-bold capitalize ${textClass}`}>{level}</div>
+                <div className={`text-2xl font-bold capitalize mb-2 ${textClass}`}>{level}</div>
+                <div className={`text-sm ${mutedText}`}>10 Questions</div>
+                <div className={`text-xs ${mutedText} mt-2`}>
+                  {level === 'easy' ? '1x XP' : level === 'medium' ? '1.5x XP' : '2x XP'}
+                </div>
               </button>
             ))}
           </div>
@@ -1732,15 +1773,141 @@ function CategoriesView({ token, darkMode }) {
 
   return (
     <div>
-      <h2 className={`text-4xl font-bold ${textClass} mb-8 text-center`}>Choose Your Challenge</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {categories.map((cat) => (
-          <button key={cat.id} onClick={() => setSelectedCategory(cat)} className={`${cardBg} rounded-xl shadow-lg p-6`}>
-            <div className="text-5xl mb-4">{cat.icon}</div>
-            <h3 className={`text-xl font-bold ${textClass}`}>{cat.name}</h3>
+      {/* Tabs */}
+      <div className="flex justify-center mb-8">
+        <div className={`inline-flex rounded-lg ${darkMode ? 'bg-gray-800' : 'bg-white'} p-1 shadow-lg`}>
+          <button
+            onClick={() => setActiveTab('normal')}
+            className={`px-6 py-3 rounded-lg font-semibold transition ${
+              activeTab === 'normal'
+                ? 'bg-indigo-600 text-white shadow-md'
+                : darkMode
+                ? 'text-gray-400 hover:text-white'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            📚 Normal Quiz
           </button>
-        ))}
+          <button
+            onClick={() => setActiveTab('ai')}
+            className={`px-6 py-3 rounded-lg font-semibold transition ${
+              activeTab === 'ai'
+                ? 'bg-indigo-600 text-white shadow-md'
+                : darkMode
+                ? 'text-gray-400 hover:text-white'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            🤖 AI Quiz
+          </button>
+          <button
+            onClick={() => setActiveTab('group')}
+            className={`px-6 py-3 rounded-lg font-semibold transition ${
+              activeTab === 'group'
+                ? 'bg-indigo-600 text-white shadow-md'
+                : darkMode
+                ? 'text-gray-400 hover:text-white'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            👥 Group Quiz
+          </button>
+        </div>
       </div>
+
+      {/* Header */}
+      <div className="text-center mb-12">
+        <h2 className={`text-4xl font-bold ${textClass} mb-4`}>
+          {activeTab === 'normal' && 'Choose Your Challenge'}
+          {activeTab === 'ai' && 'AI-Powered Quizzes'}
+          {activeTab === 'group' && 'Group Study Quizzes'}
+        </h2>
+        <p className={`${mutedText} text-lg`}>
+          {activeTab === 'normal' && 'Select a category to begin your learning journey'}
+          {activeTab === 'ai' && 'Personalized quizzes generated by AI based on your performance'}
+          {activeTab === 'group' && 'Advanced computer science topics for group study sessions'}
+        </p>
+      </div>
+
+      {/* Content */}
+      {activeTab === 'ai' ? (
+        // AI Quiz - Coming Soon
+        <div className={`${cardBg} rounded-xl shadow-lg p-12 text-center max-w-2xl mx-auto`}>
+          <div className="text-8xl mb-6">🤖</div>
+          <h3 className={`text-3xl font-bold ${textClass} mb-4`}>AI Quiz Coming Soon!</h3>
+          <p className={`${mutedText} text-lg mb-6`}>
+            Get ready for personalized quizzes powered by artificial intelligence. 
+            The AI will adapt to your skill level and create custom questions just for you!
+          </p>
+          <div className={`${darkMode ? 'bg-gray-700' : 'bg-gray-100'} rounded-lg p-6`}>
+            <h4 className={`text-xl font-semibold ${textClass} mb-3`}>Features Coming:</h4>
+            <ul className={`${mutedText} text-left space-y-2`}>
+              <li>✨ Adaptive difficulty based on your performance</li>
+              <li>🎯 Personalized question generation</li>
+              <li>📊 AI-powered learning recommendations</li>
+              <li>🔮 Predictive analytics for skill gaps</li>
+              <li>🎓 Custom study plans</li>
+            </ul>
+          </div>
+        </div>
+      ) : loading ? (
+        <div className="text-center">
+          <div className={`text-xl ${mutedText}`}>Loading categories...</div>
+        </div>
+      ) : categories.length === 0 ? (
+        <div className={`${cardBg} rounded-xl shadow-lg p-12 text-center max-w-2xl mx-auto`}>
+          <h3 className={`text-2xl font-bold ${textClass} mb-4`}>No categories available</h3>
+          <p className={mutedText}>Check back soon for new quiz categories!</p>
+        </div>
+      ) : (
+        <div className={`grid grid-cols-1 ${
+          activeTab === 'group' ? 'md:grid-cols-2 lg:grid-cols-3' : 'md:grid-cols-2 lg:grid-cols-4'
+        } gap-6`}>
+          {categories.map((cat) => (
+            <button
+              key={cat.id}
+              onClick={() => setSelectedCategory(cat)}
+              className={`${cardBg} rounded-xl shadow-lg p-6 hover:shadow-2xl transition transform hover:-translate-y-2 ${
+                activeTab === 'group' ? 'hover:border-2 hover:border-indigo-500' : ''
+              }`}
+            >
+              <div className="text-5xl mb-4">{cat.icon}</div>
+              <h3 className={`text-xl font-bold ${textClass} mb-2`}>{cat.name}</h3>
+              <p className={`${mutedText} text-sm`}>{cat.description}</p>
+              {activeTab === 'group' && (
+                <div className="mt-4">
+                  <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${
+                    darkMode ? 'bg-purple-900 text-purple-200' : 'bg-purple-100 text-purple-700'
+                  }`}>
+                    Advanced Topic
+                  </span>
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Info Banner for Group Quiz */}
+      {activeTab === 'group' && categories.length > 0 && (
+        <div className={`mt-8 ${darkMode ? 'bg-indigo-900 bg-opacity-30' : 'bg-indigo-50'} rounded-xl p-6 border-2 ${darkMode ? 'border-indigo-700' : 'border-indigo-200'}`}>
+          <div className="flex items-start space-x-4">
+            <div className="text-3xl">💡</div>
+            <div>
+              <h4 className={`text-lg font-semibold ${textClass} mb-2`}>Group Quiz Mode</h4>
+              <p className={mutedText}>
+                These advanced computer science topics are perfect for group study sessions. 
+                Challenge your friends, compare scores, and learn together! 
+                {activeTab === 'group' && categories.length === 0 && (
+                  <span className="block mt-2 text-yellow-600 font-semibold">
+                    ⚠️ Questions for these topics will be added soon!
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

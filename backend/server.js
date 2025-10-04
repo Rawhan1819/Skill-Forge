@@ -158,9 +158,22 @@ app.post('/api/auth/login', async (req, res) => {
 // ============================================
 
 // Get All Categories
+// Get Categories by Type
 app.get('/api/categories', authenticateToken, async (req, res) => {
   try {
-    const [categories] = await pool.query('SELECT * FROM categories ORDER BY name');
+    const categoryType = req.query.type || 'all'; // normal, group, ai, or all
+    
+    let query = 'SELECT * FROM categories';
+    let params = [];
+    
+    if (categoryType !== 'all') {
+      query += ' WHERE category_type = ?';
+      params.push(categoryType);
+    }
+    
+    query += ' ORDER BY name';
+    
+    const [categories] = await pool.query(query, params);
     res.json(categories);
   } catch (error) {
     console.error('Error fetching categories:', error);

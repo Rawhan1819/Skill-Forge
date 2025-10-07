@@ -920,6 +920,173 @@ app.get('/api/admin/quiz-submissions', authenticateAdmin, async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch submissions' });
   }
 });
+// ============================================
+// AI QUIZ ROUTES
+// ============================================
+
+const { 
+  AI_TOPICS, 
+  generateQuestions, 
+  generateAdaptiveQuestions,
+  validateOllamaConnection 
+} = require('./aiQuizService');
+
+// Get AI Topics
+app.get('/api/ai-quiz/topics', authenticateToken, async (req, res) => {
+  try {
+    res.json(AI_TOPICS);
+  } catch (error) {
+    console.error('Error fetching AI topics:', error);
+    res.status(500).json({ error: 'Failed to fetch topics' });
+  }
+});
+
+// Check Ollama Status
+app.get('/api/ai-quiz/status', authenticateToken, async (req, res) => {
+  try {
+    const isConnected = await validateOllamaConnection();
+    res.json({ 
+      status: isConnected ? 'ready' : 'offline',
+      message: isConnected ? 'AI Quiz system is ready' : 'Ollama is not running. Please start Ollama.'
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      status: 'error',
+      message: 'Failed to check Ollama status'
+    });
+  }
+});
+
+// Generate AI Quiz Questions
+app.post('/api/ai-quiz/generate', authenticateToken, async (req, res) => {
+  try {
+    const { topic, difficulty, numQuestions, adaptive } = req.body;
+    
+    if (!topic) {
+      return res.status(400).json({ error: 'Topic is required' });
+    }
+
+    console.log(`Generating ${numQuestions || 10} ${difficulty || 'medium'} questions for ${topic}...`);
+
+    let questions;
+    
+    if (adaptive) {
+      // Get user's quiz history for this topic
+      const [history] = await pool.query(
+        'SELECT score FROM scores WHERE user_id = ? ORDER BY timestamp DESC LIMIT 10',
+        [req.user.id]
+      );
+      
+      const scores = history.map(h => h.score);
+      questions = await generateAdaptiveQuestions(topic, scores, numQuestions || 10);
+    } else {
+      questions = await generateQuestions(topic, difficulty || 'medium', numQuestions || 10);
+    }
+
+    res.json({
+      topic: AI_TOPICS[topic]?.name,
+      difficulty: difficulty || 'medium',
+      questions,
+      isAdaptive: adaptive || false
+    });
+
+  } catch (error) {
+    console.error('Error generating AI quiz:', error);
+    res.status(500).json({ 
+      error: 'Failed to generate quiz',
+      message: error.message 
+    });
+  }
+});
+
+// Submit AI Quiz (same scoring as regular quizzes)
+app.post('/api/ai-quiz/submit', authenticateToken, async (req, res) => {
+  try {
+    const { topic, difficulty, answers, timeTaken, questions } = req.body;
+    const userId = req.user.id;
+
+    if (!answers || !Array.isArray(answers)) {
+      return res.status(400).json({ error: 'Invalid answers format' });
+    }
+
+    // Calculate score
+    let score = 0;
+    const results = answers.map((answer, idx) => {
+      const question = questions[idx];
+      const isCorrect = answer.selectedAnswer === question.correct_answer;
+      if (isCorrect) score++;
+
+      return {
+        questionId: question.id,
+        selectedAnswer: answer.selectedAnswer,
+        correctAnswer: question.correct_answer,
+        isCorrect,
+        explanation: question.explanation
+      };
+    });
+
+    const totalQuestions = answers.length;
+    const scorePercentage = Math.round((score / totalQuestions) * 100);
+
+    // Calculate XP (AI quizzes get bonus XP!)
+    const baseXP = scorePercentage;
+    const difficultyMultiplier = difficulty === 'easy' ? 1.0 : difficulty === 'medium' ? 1.5 : 2.0;
+    const aiBonus = 20; // Bonus for using AI quiz
+    const timeBonus = timeTaken < 60 ? 50 : timeTaken < 120 ? 30 : timeTaken < 180 ? 15 : 0;
+    const xpEarned = Math.round(baseXP * difficultyMultiplier) + timeBonus + aiBonus;
+    const coinsEarned = Math.round(xpEarned / 2);
+
+    // Update user stats (we'll store as category_id = 0 for AI quizzes)
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Save score (use category_id = 0 or create special AI category)
+    await pool.query(
+      `INSERT INTO scores (user_id, category_id, difficulty, score, total_questions, time_taken, xp_earned, coins_earned, speed_bonus) 
+       VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?)`,
+      [userId, difficulty, scorePercentage, totalQuestions, timeTaken, xpEarned, coinsEarned, timeBonus]
+    );
+
+    // Update user
+    await pool.query(
+      `UPDATE users 
+       SET total_score = total_score + ?, 
+           quizzes_taken = quizzes_taken + 1,
+           xp_points = xp_points + ?,
+           coins = coins + ?,
+           last_quiz_date = ?
+       WHERE id = ?`,
+      [scorePercentage, xpEarned, coinsEarned, today, userId]
+    );
+
+    // Calculate new level
+    const [updatedUser] = await pool.query(
+      'SELECT xp_points FROM users WHERE id = ?',
+      [userId]
+    );
+    const newLevel = Math.floor(updatedUser[0].xp_points / 500) + 1;
+    await pool.query('UPDATE users SET level = ? WHERE id = ?', [newLevel, userId]);
+
+    // Check achievements
+    const unlockedAchievements = await checkAndUnlockAchievements(userId);
+
+    res.json({
+      score: scorePercentage,
+      correctAnswers: score,
+      totalQuestions,
+      results,
+      xpEarned,
+      coinsEarned,
+      aiBonus,
+      speedBonus: timeBonus,
+      newLevel,
+      unlockedAchievements
+    });
+
+  } catch (error) {
+    console.error('Error submitting AI quiz:', error);
+    res.status(500).json({ error: 'Failed to submit quiz' });
+  }
+});
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 API endpoints available at http://localhost:5000/api`);
